@@ -113,6 +113,8 @@ filename carries the commit to tell them apart.
    "Active now · until 11:30" (patch 0002). Left work early: **End now** on that
    entry. Blocking returns with the next scheduled time; **Resume** if you tapped
    it by mistake.
+
+   To change an entry, tap it or its pencil icon (patch 0003).
 6. Optional check: Settings → Apps → digipaws should show no mobile data /
    Wi-Fi usage entry, since it has no network permission.
 
@@ -129,6 +131,7 @@ complete, reviewable list of how this build differs from upstream.
 |---|---|
 | `0001-weekday-schedules.patch` | Auto-Focus and cheat-hour entries get their own days (Mon–Sun chips in the add dialog; the list shows e.g. "Mon, Tue, Fri"). Entries saved before the patch keep applying every day. A range that crosses midnight belongs to the day it starts on. Also fixes upstream's negative "blocked until" time for such ranges. Logic in `utils/DaySchedule.kt`, tests in `DayScheduleTest.kt`. |
 | `0002-active-status-and-end-now.patch` | The list marks a running entry "Active now · until 11:30". **End now** (Auto-Focus only, with a confirmation) stops the running occurrence until its scheduled end; later occurrences and other entries are untouched; **Resume** undoes it. The blocker is told immediately. Also fixes upstream repeating the app names each time an entry is redrawn. |
+| `0003-edit-entries.patch` | Entries can be edited: pencil icon (or tap the card) opens the add dialog pre-filled with title, times, apps and days; **Save** replaces the entry, clears any "Ended early" mark and refreshes the blocker. Upstream only had delete + add. |
 
 Changing app code: edit it, run `selfbuild/scripts/build.sh test`, then write
 the change into a patch:

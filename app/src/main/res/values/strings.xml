@@ -136,6 +136,7 @@
     <string name="please_select_an_end_time">Please Select an end time</string>
     <string name="please_select_a_few_apps">Please select a few apps</string>
     <string name="every_day">Every day</string>
+    <string name="edit">Edit</string>
     <string name="timed_action_active_until">Active now · until %1$s</string>
     <string name="timed_action_ended_early">Ended early · back on next scheduled time</string>
     <string name="end_now">End now</string>

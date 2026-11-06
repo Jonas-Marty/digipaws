@@ -21,6 +21,14 @@
             android:orientation="vertical">
 
             <Button
+                android:id="@+id/edit_cheat_hour"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/edit"
+                app:icon="@drawable/baseline_edit_24" />
+
+            <Button
                 android:id="@+id/remove_cheat_hour"
                 style="@style/Widget.Material3.Button.IconButton"
                 android:layout_width="wrap_content"

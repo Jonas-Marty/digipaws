@@ -100,18 +100,32 @@ class TimedActionActivity : AppCompatActivity() {
         binding.recyclerView2.adapter?.notifyDataSetChanged()
     }
 
+    /** Add a new entry, or edit [existing] in place when it is given. */
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
-    private fun makeCheatHoursDialog() {
+    private fun makeCheatHoursDialog(existing: AutoTimedActionItem? = null) {
 
 
         dialogAddToTimedActionBinding = DialogAddTimedActionBinding.inflate(layoutInflater)
 
         dialogAddToTimedActionBinding.picker.startTime = TimeRangePicker.Time(6, 30)
         dialogAddToTimedActionBinding.picker.endTime = TimeRangePicker.Time(22, 0)
+        if (existing != null) {
+            dialogAddToTimedActionBinding.picker.startTime =
+                TimeRangePicker.Time(existing.startTimeInMins / 60, existing.startTimeInMins % 60)
+            dialogAddToTimedActionBinding.picker.endTime =
+                TimeRangePicker.Time(existing.endTimeInMins / 60, existing.endTimeInMins % 60)
+            dialogAddToTimedActionBinding.fromTime.text =
+                dialogAddToTimedActionBinding.picker.startTime.toString()
+            dialogAddToTimedActionBinding.endTime.text =
+                dialogAddToTimedActionBinding.picker.endTime.toString()
+            dialogAddToTimedActionBinding.cheatHourTitle.setText(existing.title)
+            selectedUnblockedApps = ArrayList(existing.packages)
+        }
 
         dialogAddToTimedActionBinding.picker.hourFormat = TimeRangePicker.HourFormat.FORMAT_24
 
-        // One chip per weekday, Monday first, all on: a new entry applies every day by default.
+        // One chip per weekday, Monday first. A new entry applies every day by default;
+        // an edited one starts from its own days.
         val dayChips = DaySchedule.WEEK.associateWith { day ->
             Chip(this).apply {
                 setChipDrawable(
@@ -121,7 +135,7 @@ class TimedActionActivity : AppCompatActivity() {
                 )
                 text = DaySchedule.shortName(day)
                 isCheckable = true
-                isChecked = true
+                isChecked = existing == null || DaySchedule.appliesOn(existing.days, day)
                 dialogAddToTimedActionBinding.dayChips.addView(this)
             }
         }
@@ -170,6 +184,10 @@ class TimedActionActivity : AppCompatActivity() {
                 dialogAddToTimedActionBinding.timedTitle.text = "Specify Apps to Unblock"
             }
         }
+        if (existing != null) {
+            dialogAddToTimedActionBinding.btnSelectUnblockedApps.text =
+                getString(R.string.app_s_selected, existing.packages.size)
+        }
 
         dialogAddToTimedActionBinding.btnSelectUnblockedApps.setOnClickListener {
             val intent = Intent(this, SelectAppsActivity::class.java)
@@ -189,7 +207,7 @@ class TimedActionActivity : AppCompatActivity() {
         }
         MaterialAlertDialogBuilder(this)
             .setView(dialogAddToTimedActionBinding.root)
-            .setPositiveButton(getString(R.string.add)) { dialog, _ ->
+            .setPositiveButton(getString(if (existing == null) R.string.add else R.string.save)) { dialog, _ ->
                 if (dialogAddToTimedActionBinding.cheatHourTitle.text?.isEmpty() == true) {
                     Toast.makeText(
                         this,
@@ -207,6 +225,19 @@ class TimedActionActivity : AppCompatActivity() {
                         this,
                         getString(R.string.please_select_a_day), Toast.LENGTH_SHORT
                     ).show()
+                } else if (existing != null) {
+                    // An edit is a new definition: a previous "End now" no longer applies.
+                    replaceItem(
+                        existing, existing.copy(
+                            title = dialogAddToTimedActionBinding.cheatHourTitle.text.toString(),
+                            startTimeInMins = startTimeInMins!!,
+                            endTimeInMins = endTimeInMins!!,
+                            packages = ArrayList(selectedUnblockedApps!!),
+                            days = dayChips.filterValues { it.isChecked }.keys.toList(),
+                            endedUntil = null
+                        )
+                    )
+                    dialog.dismiss()
                 } else {
                     timedActionList.add(
                         AutoTimedActionItem(
@@ -242,6 +273,9 @@ class TimedActionActivity : AppCompatActivity() {
                 binding.cheatHourTitle.text = item.title
                 val convertedStartTime = TimeTools.convertMinutesTo24Hour(item.startTimeInMins)
                 val convertedEndTIme = TimeTools.convertMinutesTo24Hour(item.endTimeInMins)
+
+                binding.editCheatHour.setOnClickListener { makeCheatHoursDialog(item) }
+                binding.root.setOnClickListener { makeCheatHoursDialog(item) }
 
                 binding.removeCheatHour.setOnClickListener {
                     timedActionList.removeAt(layoutPosition)

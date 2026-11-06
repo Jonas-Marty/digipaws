@@ -79,6 +79,10 @@ list, and a refresh broadcast restricted to this app's own package
 (`setPackage`) — the same broadcast the app already sends when you leave the
 screen. Two more unit tests (11 in total). No new permissions or I/O.
 
+`patches/0003-edit-entries.patch`, ours: the existing add dialog opened
+pre-filled for an existing entry, saved through the same list/save/refresh path
+as 0002. UI only, no new permissions, storage or I/O.
+
 The INTERNET check covers the patched build too.
 
 ## Alternatives considered (2026-11-06)
