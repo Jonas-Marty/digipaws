@@ -78,6 +78,29 @@ class DayScheduleTest {
     }
 
     @Test
+    fun currentEndIsTheEndOfTheRunningOccurrence() {
+        val now = at(2, 10, 30).apply { set(Calendar.SECOND, 42) }             // Mon 10:30:42
+        assertEquals(at(2, 11, 30).timeInMillis, DaySchedule.currentEnd(morning, now))
+        assertNull(DaySchedule.currentEnd(morning, at(2, 12, 0)))
+        val fridayNight = Range(22 * 60, 2 * 60, listOf(Calendar.FRIDAY))
+        assertEquals(at(7, 2, 0).timeInMillis, DaySchedule.currentEnd(fridayNight, at(6, 23, 0)))
+    }
+
+    @Test
+    fun endingEarlySkipsOnlyTheRunningOccurrence() {
+        // "End now" on Monday at 10:30 stores the end of that occurrence.
+        val endedUntil = DaySchedule.currentEnd(morning, at(2, 10, 30))
+        val ended = morning.copy(endedUntil = endedUntil)
+        assertNull(DaySchedule.minutesLeft(ended, at(2, 10, 31)))
+        assertEquals(true, DaySchedule.isEndedEarly(ended, at(2, 11, 29)))
+        // The afternoon entry is separate and still blocks.
+        assertEquals(60, DaySchedule.minutesLeft(afternoon, at(2, 15, 30)))
+        // Tuesday morning blocks again, and the "ended" mark is gone.
+        assertEquals(240, DaySchedule.minutesLeft(ended, at(3, 7, 30)))
+        assertEquals(false, DaySchedule.isEndedEarly(ended, at(3, 7, 30)))
+    }
+
+    @Test
     fun labels() {
         Locale.setDefault(Locale.ENGLISH)
         assertEquals("Every day", DaySchedule.label(null, "Every day"))

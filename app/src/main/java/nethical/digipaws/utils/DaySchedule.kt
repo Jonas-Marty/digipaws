@@ -17,7 +17,19 @@ object DaySchedule {
         Calendar.FRIDAY, Calendar.SATURDAY, Calendar.SUNDAY
     )
 
-    data class Range(val startMinutes: Int, val endMinutes: Int, val days: List<Int>?)
+    /**
+     * @property endedUntil wall-clock millis until which the range was ended early ("End now");
+     * null when it never was. Only the occurrence running at that moment is skipped.
+     */
+    data class Range(
+        val startMinutes: Int,
+        val endMinutes: Int,
+        val days: List<Int>?,
+        val endedUntil: Long? = null
+    )
+
+    fun isEndedEarly(range: Range, now: Calendar): Boolean =
+        range.endedUntil != null && now.timeInMillis < range.endedUntil
 
     fun appliesOn(days: List<Int>?, dayOfWeek: Int): Boolean =
         days.isNullOrEmpty() || dayOfWeek in days
@@ -32,6 +44,7 @@ object DaySchedule {
      * covers Saturday 00:00-02:00, but not Friday 00:00-02:00.
      */
     fun minutesLeft(range: Range, now: Calendar): Int? {
+        if (isEndedEarly(range, now)) return null
         val current = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
         val day = now.get(Calendar.DAY_OF_WEEK)
         val (start, end, days) = range
@@ -44,6 +57,16 @@ object DaySchedule {
             if (current < end && appliesOn(days, previousDay(day))) return end - current
         }
         return null
+    }
+
+    /** Wall-clock millis at which the occurrence running at [now] ends, or null if none runs. */
+    fun currentEnd(range: Range, now: Calendar): Long? {
+        val minutesLeft = minutesLeft(range, now) ?: return null
+        return (now.clone() as Calendar).apply {
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.MINUTE, minutesLeft)
+        }.timeInMillis
     }
 
     /** "Every day", "Mon–Fri", or "Mon, Tue, Fri" in the device language. */

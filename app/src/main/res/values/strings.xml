@@ -136,6 +136,12 @@
     <string name="please_select_an_end_time">Please Select an end time</string>
     <string name="please_select_a_few_apps">Please select a few apps</string>
     <string name="every_day">Every day</string>
+    <string name="timed_action_active_until">Active now · until %1$s</string>
+    <string name="timed_action_ended_early">Ended early · back on next scheduled time</string>
+    <string name="end_now">End now</string>
+    <string name="resume">Resume</string>
+    <string name="end_timed_action_title">End \"%1$s\" now?</string>
+    <string name="end_timed_action_message">Blocking stops until %1$s. The next scheduled time blocks again as usual.</string>
     <string name="please_select_a_day">Please select at least one day</string>
     <string name="cheat_timings">%1$d:%2$d to %3$d:%4$d</string>
     <string name="configure_warning_screen">Warning Screen</string>

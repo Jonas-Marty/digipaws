@@ -71,7 +71,15 @@ pinned build, but don't expect fixes for new Android versions.
 no permissions, no dependencies and no I/O: a `days` field on the stored entries
 (JSON in the existing private SharedPreferences), a pure `DaySchedule` helper
 using `Calendar` and `DateFormatSymbols`, Material chips in an existing dialog,
-and 9 JVM unit tests. The INTERNET check covers the patched build too.
+and 9 JVM unit tests.
+
+`patches/0002-active-status-and-end-now.patch`, also ours: an `endedUntil`
+timestamp on the same stored entries, a status line and button in the existing
+list, and a refresh broadcast restricted to this app's own package
+(`setPackage`) — the same broadcast the app already sends when you leave the
+screen. Two more unit tests (11 in total). No new permissions or I/O.
+
+The INTERNET check covers the patched build too.
 
 ## Alternatives considered (2026-11-06)
 

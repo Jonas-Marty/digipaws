@@ -82,7 +82,7 @@ class FocusModeBlocker : BaseBlocker() {
     fun refreshCheatHoursData(focusData: List<TimedActionActivity.AutoTimedActionItem>) {
         autoFocusHours.clear()
         focusData.forEach { item ->
-            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
+            val range = item.toRange()
             item.packages.forEach { packageName ->
                 Log.d("FocusModeBlocker", "added timed-action data for $packageName : $range")
                 autoFocusHours[packageName] = (autoFocusHours[packageName] ?: emptyList()) + range

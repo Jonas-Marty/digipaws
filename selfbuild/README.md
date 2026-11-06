@@ -108,6 +108,11 @@ filename carries the commit to tell them apart.
    | Friday | 08:00–12:00 | Fri |
 
    App Blocker cheat hours take the same day selection.
+
+   **Is it on right now?** The Auto-Focus list marks the running entry
+   "Active now · until 11:30" (patch 0002). Left work early: **End now** on that
+   entry. Blocking returns with the next scheduled time; **Resume** if you tapped
+   it by mistake.
 6. Optional check: Settings → Apps → digipaws should show no mobile data /
    Wi-Fi usage entry, since it has no network permission.
 
@@ -123,17 +128,18 @@ complete, reviewable list of how this build differs from upstream.
 | Patch | What |
 |---|---|
 | `0001-weekday-schedules.patch` | Auto-Focus and cheat-hour entries get their own days (Mon–Sun chips in the add dialog; the list shows e.g. "Mon, Tue, Fri"). Entries saved before the patch keep applying every day. A range that crosses midnight belongs to the day it starts on. Also fixes upstream's negative "blocked until" time for such ranges. Logic in `utils/DaySchedule.kt`, tests in `DayScheduleTest.kt`. |
+| `0002-active-status-and-end-now.patch` | The list marks a running entry "Active now · until 11:30". **End now** (Auto-Focus only, with a confirmation) stops the running occurrence until its scheduled end; later occurrences and other entries are untouched; **Resume** undoes it. The blocker is told immediately. Also fixes upstream repeating the app names each time an entry is redrawn. |
 
-Changing app code: edit it, run `selfbuild/scripts/build.sh test`, then
-regenerate the patch so it matches the code again (one patch file for now):
+Changing app code: edit it, run `selfbuild/scripts/build.sh test`, then write
+the change into a patch:
 
 ```bash
-source selfbuild/UPSTREAM; t=$(mktemp -d)
-GIT_INDEX_FILE=$t/i git read-tree $COMMIT
-GIT_INDEX_FILE=$t/i git add -A -- . ':(exclude)selfbuild'
-git diff --binary $COMMIT "$(GIT_INDEX_FILE=$t/i git write-tree)" > selfbuild/patches/0001-weekday-schedules.patch
-rm -rf $t
+selfbuild/scripts/make-patch.sh 0003-short-name   # new feature: next number
+selfbuild/scripts/make-patch.sh 0002-active-status-and-end-now   # or refresh the newest
 ```
+
+`make-patch.sh` diffs the working copy against `COMMIT` + all other patches,
+so it can only make or refresh the highest-numbered patch.
 
 ## Upgrading upstream
 

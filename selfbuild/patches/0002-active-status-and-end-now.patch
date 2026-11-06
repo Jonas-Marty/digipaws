@@ -1,0 +1,303 @@
+diff --git a/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt b/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt
+index bacbd23..a5ff9a5 100644
+--- a/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt
++++ b/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt
+@@ -84,7 +84,7 @@ class AppBlocker:BaseBlocker() {
+     fun refreshCheatHoursData(cheatList: List<TimedActionActivity.AutoTimedActionItem>) {
+         cheatHours.clear()
+         cheatList.forEach { item ->
+-            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
++            val range = item.toRange()
+             item.packages.forEach { packageName ->
+                 Log.d("AppBlocker", "added timed-action data for $packageName : $range")
+                 cheatHours[packageName] = (cheatHours[packageName] ?: emptyList()) + range
+diff --git a/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt b/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt
+index c9b2dfa..5d514ab 100644
+--- a/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt
++++ b/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt
+@@ -82,7 +82,7 @@ class FocusModeBlocker : BaseBlocker() {
+     fun refreshCheatHoursData(focusData: List<TimedActionActivity.AutoTimedActionItem>) {
+         autoFocusHours.clear()
+         focusData.forEach { item ->
+-            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
++            val range = item.toRange()
+             item.packages.forEach { packageName ->
+                 Log.d("FocusModeBlocker", "added timed-action data for $packageName : $range")
+                 autoFocusHours[packageName] = (autoFocusHours[packageName] ?: emptyList()) + range
+diff --git a/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt b/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt
+index af0a1bc..faeed92 100644
+--- a/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt
++++ b/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt
+@@ -5,6 +5,7 @@ import android.content.Intent
+ import android.os.Bundle
+ import android.view.LayoutInflater
+ import android.view.MotionEvent
++import android.view.View
+ import android.view.ViewGroup
+ import android.widget.Toast
+ import androidx.activity.enableEdgeToEdge
+@@ -22,10 +23,14 @@ import nethical.digipaws.R
+ import nethical.digipaws.databinding.ActivityAddTimedActionActivityBinding
+ import nethical.digipaws.databinding.CheatHourItemBinding
+ import nethical.digipaws.databinding.DialogAddTimedActionBinding
++import nethical.digipaws.services.AppBlockerService
+ import nethical.digipaws.utils.DaySchedule
+ import nethical.digipaws.utils.SavedPreferencesLoader
+ import nethical.digipaws.utils.TimeTools
+ import nl.joery.timerangepicker.TimeRangePicker
++import java.text.DateFormat
++import java.util.Calendar
++import java.util.Date
+ 
+ class TimedActionActivity : AppCompatActivity() {
+ 
+@@ -88,6 +93,13 @@ class TimedActionActivity : AppCompatActivity() {
+         }
+     }
+ 
++    @SuppressLint("NotifyDataSetChanged")
++    override fun onResume() {
++        super.onResume()
++        // "Active now" depends on the clock, so recompute it each time the list is shown.
++        binding.recyclerView2.adapter?.notifyDataSetChanged()
++    }
++
+     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
+     private fun makeCheatHoursDialog() {
+ 
+@@ -245,9 +257,42 @@ class TimedActionActivity : AppCompatActivity() {
+                         convertedEndTIme.first,
+                         convertedEndTIme.second
+                     ) + " · " + DaySchedule.label(item.days, getString(R.string.every_day))
+-                item.packages.forEach { packageName ->
+-                    binding.selectedApps.text =
+-                        binding.selectedApps.text.toString() + " " + packageName
++                // Set, not append: a rebind (status change, onResume) would repeat the list.
++                binding.selectedApps.text = item.packages.joinToString(" ")
++
++                bindStatus(item)
++            }
++
++            private fun bindStatus(item: AutoTimedActionItem) {
++                val now = Calendar.getInstance()
++                val range = item.toRange()
++                val endsAt = DaySchedule.currentEnd(range, now)
++                // Only Auto-Focus can be ended early; cheat hours just show that they run.
++                val canEnd = selectedMode == MODE_AUTO_FOCUS
++                when {
++                    endsAt != null -> {
++                        binding.activeStatus.text =
++                            getString(R.string.timed_action_active_until, formatTime(endsAt))
++                        binding.activeStatus.visibility = View.VISIBLE
++                        binding.endEarly.text = getString(R.string.end_now)
++                        binding.endEarly.visibility = if (canEnd) View.VISIBLE else View.GONE
++                        binding.endEarly.setOnClickListener { confirmEndEarly(item, endsAt) }
++                    }
++
++                    DaySchedule.isEndedEarly(range, now) -> {
++                        binding.activeStatus.text = getString(R.string.timed_action_ended_early)
++                        binding.activeStatus.visibility = View.VISIBLE
++                        binding.endEarly.text = getString(R.string.resume)
++                        binding.endEarly.visibility = if (canEnd) View.VISIBLE else View.GONE
++                        binding.endEarly.setOnClickListener {
++                            replaceItem(item, item.copy(endedUntil = null))
++                        }
++                    }
++
++                    else -> {
++                        binding.activeStatus.visibility = View.GONE
++                        binding.endEarly.visibility = View.GONE
++                    }
+                 }
+ 
+             }
+@@ -269,6 +314,34 @@ class TimedActionActivity : AppCompatActivity() {
+         override fun getItemCount(): Int = items.size
+     }
+ 
++    private fun formatTime(millis: Long): String =
++        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(millis))
++
++    private fun confirmEndEarly(item: AutoTimedActionItem, endsAt: Long) {
++        MaterialAlertDialogBuilder(this)
++            .setTitle(getString(R.string.end_timed_action_title, item.title))
++            .setMessage(getString(R.string.end_timed_action_message, formatTime(endsAt)))
++            .setPositiveButton(getString(R.string.end_now)) { _, _ ->
++                replaceItem(item, item.copy(endedUntil = endsAt))
++            }
++            .setNegativeButton(getString(R.string.cancel), null)
++            .show()
++    }
++
++    private fun replaceItem(old: AutoTimedActionItem, new: AutoTimedActionItem) {
++        val index = timedActionList.indexOf(old)
++        if (index < 0) return
++        timedActionList[index] = new
++        binding.recyclerView2.adapter?.notifyItemChanged(index)
++        saveList()
++        // Tell the running blocker now rather than when this screen is left.
++        val action = when (selectedMode) {
++            MODE_AUTO_FOCUS -> AppBlockerService.INTENT_ACTION_REFRESH_FOCUS_MODE
++            else -> AppBlockerService.INTENT_ACTION_REFRESH_APP_BLOCKER
++        }
++        sendBroadcast(Intent(action).setPackage(packageName))
++    }
++
+     private fun saveList() {
+         when (selectedMode) {
+             MODE_APP_BLOCKER_CHEAT_HOURS -> savedPreferencesLoader.saveAppBlockerCheatHoursList(
+@@ -286,8 +359,12 @@ class TimedActionActivity : AppCompatActivity() {
+         val packages: ArrayList<String>,
+         val isProceedHidden: Boolean = false,
+         // Calendar.DAY_OF_WEEK values; null (entries saved before weekdays) = every day.
+-        val days: List<Int>? = null
+-    )
++        val days: List<Int>? = null,
++        // Wall-clock millis until which this entry was ended early ("End now").
++        val endedUntil: Long? = null
++    ) {
++        fun toRange() = DaySchedule.Range(startTimeInMins, endTimeInMins, days, endedUntil)
++    }
+ 
+ 
+ }
+\ No newline at end of file
+diff --git a/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt b/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt
+index bb162ee..28e5dd8 100644
+--- a/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt
++++ b/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt
+@@ -17,7 +17,19 @@ object DaySchedule {
+         Calendar.FRIDAY, Calendar.SATURDAY, Calendar.SUNDAY
+     )
+ 
+-    data class Range(val startMinutes: Int, val endMinutes: Int, val days: List<Int>?)
++    /**
++     * @property endedUntil wall-clock millis until which the range was ended early ("End now");
++     * null when it never was. Only the occurrence running at that moment is skipped.
++     */
++    data class Range(
++        val startMinutes: Int,
++        val endMinutes: Int,
++        val days: List<Int>?,
++        val endedUntil: Long? = null
++    )
++
++    fun isEndedEarly(range: Range, now: Calendar): Boolean =
++        range.endedUntil != null && now.timeInMillis < range.endedUntil
+ 
+     fun appliesOn(days: List<Int>?, dayOfWeek: Int): Boolean =
+         days.isNullOrEmpty() || dayOfWeek in days
+@@ -32,6 +44,7 @@ object DaySchedule {
+      * covers Saturday 00:00-02:00, but not Friday 00:00-02:00.
+      */
+     fun minutesLeft(range: Range, now: Calendar): Int? {
++        if (isEndedEarly(range, now)) return null
+         val current = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+         val day = now.get(Calendar.DAY_OF_WEEK)
+         val (start, end, days) = range
+@@ -46,6 +59,16 @@ object DaySchedule {
+         return null
+     }
+ 
++    /** Wall-clock millis at which the occurrence running at [now] ends, or null if none runs. */
++    fun currentEnd(range: Range, now: Calendar): Long? {
++        val minutesLeft = minutesLeft(range, now) ?: return null
++        return (now.clone() as Calendar).apply {
++            set(Calendar.SECOND, 0)
++            set(Calendar.MILLISECOND, 0)
++            add(Calendar.MINUTE, minutesLeft)
++        }.timeInMillis
++    }
++
+     /** "Every day", "Mon–Fri", or "Mon, Tue, Fri" in the device language. */
+     fun label(days: List<Int>?, everyDay: String): String {
+         if (days.isNullOrEmpty() || days.toSet().containsAll(WEEK)) return everyDay
+diff --git a/app/src/main/res/layout/cheat_hour_item.xml b/app/src/main/res/layout/cheat_hour_item.xml
+index a24f948..fab89b9 100644
+--- a/app/src/main/res/layout/cheat_hour_item.xml
++++ b/app/src/main/res/layout/cheat_hour_item.xml
+@@ -52,6 +52,16 @@
+                 android:text="@string/apps"
+                 tools:text="12:00 to 13:00" />
+ 
++            <TextView
++                android:id="@+id/active_status"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:textColor="?attr/colorPrimary"
++                android:textStyle="bold"
++                android:visibility="gone"
++                tools:text="Active now · until 11:30"
++                tools:visibility="visible" />
++
+             <TextView
+                 android:id="@+id/selected_apps"
+                 android:layout_width="wrap_content"
+@@ -59,6 +69,16 @@
+                 android:ellipsize="end"
+                 android:maxLines="1"
+                 tools:text="com.nethical.digipaws, com.android.settings, com.asjeblieaft, com.trash.app,com.s,sd,d,sds,sdsds,sdgshdgsgdgsdgsjd" />
++
++            <Button
++                android:id="@+id/end_early"
++                style="@style/Widget.Material3.Button.TonalButton"
++                android:layout_width="wrap_content"
++                android:layout_height="wrap_content"
++                android:layout_marginTop="4dp"
++                android:visibility="gone"
++                tools:text="End now"
++                tools:visibility="visible" />
+         </LinearLayout>
+ 
+     </LinearLayout>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 5ae47ad..235d157 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -136,6 +136,12 @@
+     <string name="please_select_an_end_time">Please Select an end time</string>
+     <string name="please_select_a_few_apps">Please select a few apps</string>
+     <string name="every_day">Every day</string>
++    <string name="timed_action_active_until">Active now · until %1$s</string>
++    <string name="timed_action_ended_early">Ended early · back on next scheduled time</string>
++    <string name="end_now">End now</string>
++    <string name="resume">Resume</string>
++    <string name="end_timed_action_title">End \"%1$s\" now?</string>
++    <string name="end_timed_action_message">Blocking stops until %1$s. The next scheduled time blocks again as usual.</string>
+     <string name="please_select_a_day">Please select at least one day</string>
+     <string name="cheat_timings">%1$d:%2$d to %3$d:%4$d</string>
+     <string name="configure_warning_screen">Warning Screen</string>
+diff --git a/app/src/test/java/nethical/digipaws/DayScheduleTest.kt b/app/src/test/java/nethical/digipaws/DayScheduleTest.kt
+index 11fc9e1..1840fc0 100644
+--- a/app/src/test/java/nethical/digipaws/DayScheduleTest.kt
++++ b/app/src/test/java/nethical/digipaws/DayScheduleTest.kt
+@@ -77,6 +77,29 @@ class DayScheduleTest {
+         assertNull(DaySchedule.minutesLeft(Range(600, 600, null), at(2, 10, 0)))
+     }
+ 
++    @Test
++    fun currentEndIsTheEndOfTheRunningOccurrence() {
++        val now = at(2, 10, 30).apply { set(Calendar.SECOND, 42) }             // Mon 10:30:42
++        assertEquals(at(2, 11, 30).timeInMillis, DaySchedule.currentEnd(morning, now))
++        assertNull(DaySchedule.currentEnd(morning, at(2, 12, 0)))
++        val fridayNight = Range(22 * 60, 2 * 60, listOf(Calendar.FRIDAY))
++        assertEquals(at(7, 2, 0).timeInMillis, DaySchedule.currentEnd(fridayNight, at(6, 23, 0)))
++    }
++
++    @Test
++    fun endingEarlySkipsOnlyTheRunningOccurrence() {
++        // "End now" on Monday at 10:30 stores the end of that occurrence.
++        val endedUntil = DaySchedule.currentEnd(morning, at(2, 10, 30))
++        val ended = morning.copy(endedUntil = endedUntil)
++        assertNull(DaySchedule.minutesLeft(ended, at(2, 10, 31)))
++        assertEquals(true, DaySchedule.isEndedEarly(ended, at(2, 11, 29)))
++        // The afternoon entry is separate and still blocks.
++        assertEquals(60, DaySchedule.minutesLeft(afternoon, at(2, 15, 30)))
++        // Tuesday morning blocks again, and the "ended" mark is gone.
++        assertEquals(240, DaySchedule.minutesLeft(ended, at(3, 7, 30)))
++        assertEquals(false, DaySchedule.isEndedEarly(ended, at(3, 7, 30)))
++    }
++
+     @Test
+     fun labels() {
+         Locale.setDefault(Locale.ENGLISH)

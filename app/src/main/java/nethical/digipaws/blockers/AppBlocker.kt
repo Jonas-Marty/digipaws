@@ -84,7 +84,7 @@ class AppBlocker:BaseBlocker() {
     fun refreshCheatHoursData(cheatList: List<TimedActionActivity.AutoTimedActionItem>) {
         cheatHours.clear()
         cheatList.forEach { item ->
-            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
+            val range = item.toRange()
             item.packages.forEach { packageName ->
                 Log.d("AppBlocker", "added timed-action data for $packageName : $range")
                 cheatHours[packageName] = (cheatHours[packageName] ?: emptyList()) + range

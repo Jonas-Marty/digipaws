@@ -53,12 +53,32 @@
                 tools:text="12:00 to 13:00" />
 
             <TextView
+                android:id="@+id/active_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold"
+                android:visibility="gone"
+                tools:text="Active now · until 11:30"
+                tools:visibility="visible" />
+
+            <TextView
                 android:id="@+id/selected_apps"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
                 tools:text="com.nethical.digipaws, com.android.settings, com.asjeblieaft, com.trash.app,com.s,sd,d,sds,sdsds,sdgshdgsgdgsdgsjd" />
+
+            <Button
+                android:id="@+id/end_early"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:visibility="gone"
+                tools:text="End now"
+                tools:visibility="visible" />
         </LinearLayout>
 
     </LinearLayout>

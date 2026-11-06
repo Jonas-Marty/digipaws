@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -22,10 +23,14 @@ import nethical.digipaws.R
 import nethical.digipaws.databinding.ActivityAddTimedActionActivityBinding
 import nethical.digipaws.databinding.CheatHourItemBinding
 import nethical.digipaws.databinding.DialogAddTimedActionBinding
+import nethical.digipaws.services.AppBlockerService
 import nethical.digipaws.utils.DaySchedule
 import nethical.digipaws.utils.SavedPreferencesLoader
 import nethical.digipaws.utils.TimeTools
 import nl.joery.timerangepicker.TimeRangePicker
+import java.text.DateFormat
+import java.util.Calendar
+import java.util.Date
 
 class TimedActionActivity : AppCompatActivity() {
 
@@ -86,6 +91,13 @@ class TimedActionActivity : AppCompatActivity() {
         binding.button.setOnClickListener {
             makeCheatHoursDialog()
         }
+    }
+
+    @SuppressLint("NotifyDataSetChanged")
+    override fun onResume() {
+        super.onResume()
+        // "Active now" depends on the clock, so recompute it each time the list is shown.
+        binding.recyclerView2.adapter?.notifyDataSetChanged()
     }
 
     @SuppressLint("ClickableViewAccessibility", "SetTextI18n")
@@ -245,9 +257,42 @@ class TimedActionActivity : AppCompatActivity() {
                         convertedEndTIme.first,
                         convertedEndTIme.second
                     ) + " · " + DaySchedule.label(item.days, getString(R.string.every_day))
-                item.packages.forEach { packageName ->
-                    binding.selectedApps.text =
-                        binding.selectedApps.text.toString() + " " + packageName
+                // Set, not append: a rebind (status change, onResume) would repeat the list.
+                binding.selectedApps.text = item.packages.joinToString(" ")
+
+                bindStatus(item)
+            }
+
+            private fun bindStatus(item: AutoTimedActionItem) {
+                val now = Calendar.getInstance()
+                val range = item.toRange()
+                val endsAt = DaySchedule.currentEnd(range, now)
+                // Only Auto-Focus can be ended early; cheat hours just show that they run.
+                val canEnd = selectedMode == MODE_AUTO_FOCUS
+                when {
+                    endsAt != null -> {
+                        binding.activeStatus.text =
+                            getString(R.string.timed_action_active_until, formatTime(endsAt))
+                        binding.activeStatus.visibility = View.VISIBLE
+                        binding.endEarly.text = getString(R.string.end_now)
+                        binding.endEarly.visibility = if (canEnd) View.VISIBLE else View.GONE
+                        binding.endEarly.setOnClickListener { confirmEndEarly(item, endsAt) }
+                    }
+
+                    DaySchedule.isEndedEarly(range, now) -> {
+                        binding.activeStatus.text = getString(R.string.timed_action_ended_early)
+                        binding.activeStatus.visibility = View.VISIBLE
+                        binding.endEarly.text = getString(R.string.resume)
+                        binding.endEarly.visibility = if (canEnd) View.VISIBLE else View.GONE
+                        binding.endEarly.setOnClickListener {
+                            replaceItem(item, item.copy(endedUntil = null))
+                        }
+                    }
+
+                    else -> {
+                        binding.activeStatus.visibility = View.GONE
+                        binding.endEarly.visibility = View.GONE
+                    }
                 }
 
             }
@@ -269,6 +314,34 @@ class TimedActionActivity : AppCompatActivity() {
         override fun getItemCount(): Int = items.size
     }
 
+    private fun formatTime(millis: Long): String =
+        DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(millis))
+
+    private fun confirmEndEarly(item: AutoTimedActionItem, endsAt: Long) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.end_timed_action_title, item.title))
+            .setMessage(getString(R.string.end_timed_action_message, formatTime(endsAt)))
+            .setPositiveButton(getString(R.string.end_now)) { _, _ ->
+                replaceItem(item, item.copy(endedUntil = endsAt))
+            }
+            .setNegativeButton(getString(R.string.cancel), null)
+            .show()
+    }
+
+    private fun replaceItem(old: AutoTimedActionItem, new: AutoTimedActionItem) {
+        val index = timedActionList.indexOf(old)
+        if (index < 0) return
+        timedActionList[index] = new
+        binding.recyclerView2.adapter?.notifyItemChanged(index)
+        saveList()
+        // Tell the running blocker now rather than when this screen is left.
+        val action = when (selectedMode) {
+            MODE_AUTO_FOCUS -> AppBlockerService.INTENT_ACTION_REFRESH_FOCUS_MODE
+            else -> AppBlockerService.INTENT_ACTION_REFRESH_APP_BLOCKER
+        }
+        sendBroadcast(Intent(action).setPackage(packageName))
+    }
+
     private fun saveList() {
         when (selectedMode) {
             MODE_APP_BLOCKER_CHEAT_HOURS -> savedPreferencesLoader.saveAppBlockerCheatHoursList(
@@ -286,8 +359,12 @@ class TimedActionActivity : AppCompatActivity() {
         val packages: ArrayList<String>,
         val isProceedHidden: Boolean = false,
         // Calendar.DAY_OF_WEEK values; null (entries saved before weekdays) = every day.
-        val days: List<Int>? = null
-    )
+        val days: List<Int>? = null,
+        // Wall-clock millis until which this entry was ended early ("End now").
+        val endedUntil: Long? = null
+    ) {
+        fun toRange() = DaySchedule.Range(startTimeInMins, endTimeInMins, days, endedUntil)
+    }
 
 
 }
