@@ -3,7 +3,7 @@ package nethical.digipaws.blockers
 import android.os.SystemClock
 import android.util.Log
 import nethical.digipaws.ui.activity.TimedActionActivity
-import nethical.digipaws.utils.TimeTools
+import nethical.digipaws.utils.DaySchedule
 import java.util.Calendar
 
 class AppBlocker:BaseBlocker() {
@@ -11,8 +11,8 @@ class AppBlocker:BaseBlocker() {
     // package-name -> end-time-in-millis
     private var cooldownAppsList:MutableMap<String,Long> = mutableMapOf()
 
-    // package-name -> [(start-time, end-time), ...]
-    private var cheatHours: MutableMap<String, List<Pair<Int, Int>>> = mutableMapOf()
+    // package-name -> [(start-time, end-time, days), ...]
+    private var cheatHours: MutableMap<String, List<DaySchedule.Range>> = mutableMapOf()
 
     var blockedAppsList = hashSetOf("")
 
@@ -67,27 +67,15 @@ class AppBlocker:BaseBlocker() {
      * @return Returns null if the app is not under cheat hours, or the timestamp (uptimeMillis) when it ends.
      */
     private fun getEndTimeInMillis(packageName: String): Long? {
-        if (cheatHours[packageName] == null) return null
+        val ranges = cheatHours[packageName] ?: return null
 
-        val currentTime = Calendar.getInstance()
-        val currentHour = currentTime.get(Calendar.HOUR_OF_DAY)
-        val currentMinute = currentTime.get(Calendar.MINUTE)
-
-        val currentMinutes = TimeTools.convertToMinutesFromMidnight(currentHour, currentMinute)
+        val now = Calendar.getInstance()
         val uptimeNow = SystemClock.uptimeMillis()
 
-        cheatHours[packageName]?.forEach { (startMinutes, endMinutes) ->
-            if ((startMinutes <= endMinutes && currentMinutes in startMinutes until endMinutes) ||
-                (startMinutes > endMinutes && (currentMinutes >= startMinutes || currentMinutes < endMinutes))
-            ) {
-
-                // Convert endMinutes to uptimeMillis
-                val diffMinutes = endMinutes - currentMinutes
-                Log.d("AppBlocker", "$packageName cheat-hour ends after $diffMinutes minutes")
-                val endTimeMillis = uptimeNow + (diffMinutes * 60 * 1000)
-
-                return endTimeMillis
-            }
+        ranges.forEach { range ->
+            val minutesLeft = DaySchedule.minutesLeft(range, now) ?: return@forEach
+            Log.d("AppBlocker", "$packageName cheat-hour ends after $minutesLeft minutes")
+            return uptimeNow + (minutesLeft * 60 * 1000L)
         }
         return null
     }
@@ -96,29 +84,12 @@ class AppBlocker:BaseBlocker() {
     fun refreshCheatHoursData(cheatList: List<TimedActionActivity.AutoTimedActionItem>) {
         cheatHours.clear()
         cheatList.forEach { item ->
-            val startTime = item.startTimeInMins
-            val endTime = item.endTimeInMins
-            val packageNames: ArrayList<String> = item.packages
-
-            packageNames.forEach { packageName ->
-                Log.d(
-                    "AppBlocker",
-                    "added cheat-hour data for $packageName : $startTime to $endTime"
-                )
-
-                if (cheatHours.containsKey(packageName)) {
-                    val cheatHourTimeData: List<Pair<Int, Int>>? = cheatHours[packageName]
-                    val cheatHourNewTimeData: MutableList<Pair<Int, Int>> =
-                        cheatHourTimeData!!.toMutableList()
-
-                    cheatHourNewTimeData.add(Pair(startTime, endTime))
-                    cheatHours[packageName] = cheatHourNewTimeData
-                } else {
-                    cheatHours[packageName] = listOf(Pair(startTime, endTime))
-                }
+            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
+            item.packages.forEach { packageName ->
+                Log.d("AppBlocker", "added timed-action data for $packageName : $range")
+                cheatHours[packageName] = (cheatHours[packageName] ?: emptyList()) + range
             }
         }
-
     }
 
     /**

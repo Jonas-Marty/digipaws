@@ -14,8 +14,9 @@ produce an APK that asks for it.
 
 This is a private copy of upstream with its full history (GitHub does not allow
 private forks of public repos): `origin` is `Jonas-Marty/digipaws`, `upstream` is
-`WAYYYAW/digipaws`. Everything outside `selfbuild/` is upstream, untouched; the
-build refuses to run if that stops being true for the audited commit.
+`WAYYYAW/digipaws`. Everything outside `selfbuild/` is upstream at the audited
+commit plus our own patches in `selfbuild/patches/` (see [Patches](#patches)); the
+build refuses to run if the code is anything else.
 
 ## Layout
 
@@ -23,7 +24,8 @@ build refuses to run if that stops being true for the audited commit.
 |---|---|
 | `selfbuild/UPSTREAM` | upstream repo, audited commit and flavor that get built |
 | `selfbuild/docker/Dockerfile` | the Android build environment (JDK 17, SDK 34) |
-| `selfbuild/scripts/build.sh` | check source == audited commit → build → sign → verify → `selfbuild/out/` |
+| `selfbuild/patches/` | our changes to the app, as reviewed diffs against `COMMIT` |
+| `selfbuild/scripts/build.sh` | check source == commit + patches → build → sign → verify → `selfbuild/out/` |
 | `selfbuild/scripts/publish.sh` | build, publish to `apk.wi-wo.ch`, send Gotify link |
 | `selfbuild/out/` | signed APK, its sha256, permissions, signer cert |
 
@@ -35,14 +37,16 @@ named volume `digipaws-gradle`, so only the first build is slow (~3 min).
 
 ```bash
 selfbuild/scripts/build.sh keygen   # once: release key in ~/.keystores/digipaws.jks
-selfbuild/scripts/build.sh          # build selfbuild/out/digipaws-<version>-<code>-<commit>.apk
+selfbuild/scripts/build.sh          # build selfbuild/out/digipaws-<version>-<code>-<upstream>-<fork>.apk
+selfbuild/scripts/build.sh test     # unit tests (incl. the weekday schedule tests)
 selfbuild/scripts/build.sh bash     # shell in the build container
 ```
 
 The build:
 
 1. checks that every file outside `selfbuild/` (tracked or untracked) equals
-   `COMMIT`; any difference is printed and the build refused;
+   `COMMIT` with `selfbuild/patches/*.patch` applied in order; any difference is
+   printed and the build refused;
 2. runs `./gradlew assembleLiteRelease` in the container — upstream leaves
    release unsigned, so no upstream file needs touching;
 3. signs with `apksigner` using the local key (v1–v3, no v4 `.idsig`);
@@ -94,17 +98,53 @@ filename carries the commit to tell them apart.
    only. Leave Keyword Blocker, View Blocker (reels/shorts) and Usage Tracker
    **off** — those read screen content.
 4. Skip Shizuku (only used for grayscale) and device admin (anti-uninstall).
-5. Schedules: **Setup Auto-Focus** (time ranges per app, enforced by the
-   App Blocker service), or App Blocker with its cheat hours.
+5. Schedules: **Setup Auto-Focus**, one entry per time window, each with its own
+   days (patch 0001). Example, a split workday plus a short Friday:
+
+   | Entry | Time | Days |
+   |---|---|---|
+   | Work morning | 07:30–11:30 | Mon–Thu |
+   | Work afternoon | 12:30–16:30 | Mon–Thu |
+   | Friday | 08:00–12:00 | Fri |
+
+   App Blocker cheat hours take the same day selection.
 6. Optional check: Settings → Apps → digipaws should show no mobile data /
    Wi-Fi usage entry, since it has no network permission.
 
 Tailscale and NordVPN are unaffected: digipaws uses no VPN service.
 
+## Patches
+
+Our own changes to the app live in `selfbuild/patches/`, numbered, one feature
+each. The code changes are committed in this repo as well, and the build checks
+that the code matches `COMMIT` + the patches exactly, so the patch files are a
+complete, reviewable list of how this build differs from upstream.
+
+| Patch | What |
+|---|---|
+| `0001-weekday-schedules.patch` | Auto-Focus and cheat-hour entries get their own days (Mon–Sun chips in the add dialog; the list shows e.g. "Mon, Tue, Fri"). Entries saved before the patch keep applying every day. A range that crosses midnight belongs to the day it starts on. Also fixes upstream's negative "blocked until" time for such ranges. Logic in `utils/DaySchedule.kt`, tests in `DayScheduleTest.kt`. |
+
+Changing app code: edit it, run `selfbuild/scripts/build.sh test`, then
+regenerate the patch so it matches the code again (one patch file for now):
+
+```bash
+source selfbuild/UPSTREAM; t=$(mktemp -d)
+GIT_INDEX_FILE=$t/i git read-tree $COMMIT
+GIT_INDEX_FILE=$t/i git add -A -- . ':(exclude)selfbuild'
+git diff --binary $COMMIT "$(GIT_INDEX_FILE=$t/i git write-tree)" > selfbuild/patches/0001-weekday-schedules.patch
+rm -rf $t
+```
+
 ## Upgrading upstream
 
 1. `git fetch upstream && git log --oneline <COMMIT>..upstream/main`
 2. Re-run the checklist in [AUDIT.md](AUDIT.md) on `git diff <COMMIT> upstream/main`.
-3. `git merge upstream/main` — the build now refuses until step 4.
-4. Set `COMMIT` in `selfbuild/UPSTREAM` to the audited upstream commit, note
-   the audit in AUDIT.md, commit, `selfbuild/scripts/publish.sh`, push.
+3. `git merge upstream/main`. The build refuses from now until step 5.
+4. Resolve any conflicts in the patched files. Then check that the patches
+   still apply to the new commit:
+   `git apply --check --cached` against a temporary index of it (`build.sh`
+   says which patch fails), or regenerate them as described under
+   [Patches](#patches).
+5. Set `COMMIT` in `selfbuild/UPSTREAM` to the audited upstream commit, note
+   the audit in AUDIT.md, run `build.sh test`, commit,
+   `selfbuild/scripts/publish.sh`, push.

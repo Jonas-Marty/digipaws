@@ -4,13 +4,13 @@ import android.os.SystemClock
 import android.util.Log
 import nethical.digipaws.Constants
 import nethical.digipaws.ui.activity.TimedActionActivity
-import nethical.digipaws.utils.TimeTools
+import nethical.digipaws.utils.DaySchedule
 import java.util.Calendar
 
 class FocusModeBlocker : BaseBlocker() {
 
-    // package-name -> [(start-time, end-time), ...]
-    private var autoFocusHours: MutableMap<String, List<Pair<Int, Int>>> = mutableMapOf()
+    // package-name -> [(start-time, end-time, days), ...]
+    private var autoFocusHours: MutableMap<String, List<DaySchedule.Range>> = mutableMapOf()
 
     var focusModeData = FocusModeData()
 
@@ -66,26 +66,14 @@ class FocusModeBlocker : BaseBlocker() {
      * @return Returns null if the app is not under auto focus hours, or the timestamp (uptimeMillis) when it ends .
      */
     private fun getEndTimeInMillis(packageName: String): Long? {
-        if (autoFocusHours[packageName] == null) return null
+        val ranges = autoFocusHours[packageName] ?: return null
 
-        val currentTime = Calendar.getInstance()
-        val currentHour = currentTime.get(Calendar.HOUR_OF_DAY)
-        val currentMinute = currentTime.get(Calendar.MINUTE)
-
-        val currentMinutes = TimeTools.convertToMinutesFromMidnight(currentHour, currentMinute)
+        val now = Calendar.getInstance()
         val uptimeNow = SystemClock.uptimeMillis()
 
-        autoFocusHours[packageName]?.forEach { (startMinutes, endMinutes) ->
-            if ((startMinutes <= endMinutes && currentMinutes in startMinutes until endMinutes) ||
-                (startMinutes > endMinutes && (currentMinutes >= startMinutes || currentMinutes < endMinutes))
-            ) {
-
-                // Convert endMinutes to uptimeMillis
-                val diffMinutes = endMinutes - currentMinutes
-                val endTimeMillis = uptimeNow + (diffMinutes * 60 * 1000)
-
-                return endTimeMillis
-            }
+        ranges.forEach { range ->
+            val minutesLeft = DaySchedule.minutesLeft(range, now) ?: return@forEach
+            return uptimeNow + (minutesLeft * 60 * 1000L)
         }
         return null
     }
@@ -94,26 +82,12 @@ class FocusModeBlocker : BaseBlocker() {
     fun refreshCheatHoursData(focusData: List<TimedActionActivity.AutoTimedActionItem>) {
         autoFocusHours.clear()
         focusData.forEach { item ->
-            val startTime = item.startTimeInMins
-            val endTime = item.endTimeInMins
-            val packageNames: ArrayList<String> = item.packages
-
-            packageNames.forEach { packageName ->
-
-                if (autoFocusHours.containsKey(packageName)) {
-                    val cheatHourTimeData: List<Pair<Int, Int>>? = autoFocusHours[packageName]
-                    val cheatHourNewTimeData: MutableList<Pair<Int, Int>> =
-                        cheatHourTimeData!!.toMutableList()
-
-                    cheatHourNewTimeData.add(Pair(startTime, endTime))
-                    autoFocusHours[packageName] = cheatHourNewTimeData
-                } else {
-                    autoFocusHours[packageName] = listOf(Pair(startTime, endTime))
-                }
+            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
+            item.packages.forEach { packageName ->
+                Log.d("FocusModeBlocker", "added timed-action data for $packageName : $range")
+                autoFocusHours[packageName] = (autoFocusHours[packageName] ?: emptyList()) + range
             }
         }
-        Log.d("FocusModeBlocker", "Auto Focus Data updated $autoFocusHours")
-
     }
 
     /**

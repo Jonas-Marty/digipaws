@@ -3,15 +3,17 @@
 # inside a Docker container. Nothing is installed on the host.
 #
 #   selfbuild/scripts/build.sh          # build, sign, verify -> selfbuild/out/
+#   selfbuild/scripts/build.sh test     # unit tests only
 #   selfbuild/scripts/build.sh keygen   # create the release keystore (once)
 #   selfbuild/scripts/build.sh bash     # a shell in the build container
 #
-# This repo is upstream digipaws plus this selfbuild/ directory. The build is
-# refused unless every file outside selfbuild/ is identical to the audited
-# COMMIT in UPSTREAM — so merging upstream changes forces an audit and a COMMIT
-# bump before anything new gets built. The finished APK is rejected if it asks
-# for INTERNET, the property the whole "trust it with Accessibility" argument
-# rests on (see AUDIT.md).
+# This repo is upstream digipaws plus this selfbuild/ directory and our own
+# patches. The build is refused unless every file outside selfbuild/ is exactly
+# the audited COMMIT in UPSTREAM with selfbuild/patches/*.patch applied, in
+# order — so merging upstream, or editing app code without updating the patch
+# that describes it, stops the build until it is reviewed. The finished APK is
+# rejected if it asks for INTERNET, the property the whole "trust it with
+# Accessibility" argument rests on (see AUDIT.md).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # selfbuild/
@@ -43,7 +45,45 @@ run_args=(
 [ -t 0 ] && run_args+=(-t)
 in_container() { docker run "${run_args[@]}" "$@" "$IMAGE" bash -euo pipefail -c "$CMD"; }
 
+# Tree of COMMIT + patches vs. tree of the working copy, both outside
+# selfbuild/. Temporary indexes keep the real index and working tree untouched;
+# `git add` honours .gitignore, so build output never counts.
+check_source() {
+    local patches=("$ROOT"/patches/*.patch) tmp expected actual
+    [ -e "${patches[0]}" ] || patches=()
+    echo "==> source must equal $REPO @ ${COMMIT:0:7} + ${#patches[@]} patch(es)"
+    git -C "$REPO_ROOT" cat-file -e "$COMMIT^{commit}" 2>/dev/null || git -C "$REPO_ROOT" fetch -q upstream
+    tmp="$(mktemp -d)"
+    GIT_INDEX_FILE="$tmp/expected" git -C "$REPO_ROOT" read-tree "$COMMIT"
+    for patch in "${patches[@]}"; do
+        if ! GIT_INDEX_FILE="$tmp/expected" git -C "$REPO_ROOT" apply --cached "$patch"; then
+            echo "error: $(basename "$patch") no longer applies to ${COMMIT:0:7}; rebase it." >&2
+            rm -rf "$tmp"; exit 1
+        fi
+    done
+    expected="$(GIT_INDEX_FILE="$tmp/expected" git -C "$REPO_ROOT" write-tree)"
+    GIT_INDEX_FILE="$tmp/actual" git -C "$REPO_ROOT" read-tree "$COMMIT"
+    GIT_INDEX_FILE="$tmp/actual" git -C "$REPO_ROOT" add -A -- . ':(exclude)selfbuild'
+    actual="$(GIT_INDEX_FILE="$tmp/actual" git -C "$REPO_ROOT" write-tree)"
+    rm -rf "$tmp"
+    if [ "$expected" != "$actual" ]; then
+        echo "error: the app source is not ${COMMIT:0:7} + selfbuild/patches. Difference:" >&2
+        git -C "$REPO_ROOT" diff --stat "$expected" "$actual" >&2
+        echo "Audit the change (AUDIT.md); then update COMMIT in UPSTREAM or regenerate the patch." >&2
+        exit 1
+    fi
+}
+
+flavor_cap="$(tr '[:lower:]' '[:upper:]' <<<"${FLAVOR:0:1}")${FLAVOR:1}"
+
 case "${1:-}" in
+    test)
+        check_source
+        echo "==> gradle test${flavor_cap}DebugUnitTest"
+        CMD="cd .. && ./gradlew --no-daemon -q test${flavor_cap}DebugUnitTest && echo 'unit tests passed'"
+        in_container
+        exit 0
+        ;;
     bash)
         exec docker run "${run_args[@]}" "$IMAGE" bash
         ;;
@@ -72,19 +112,8 @@ esac
     exit 1
 }
 
-echo "==> source must equal $REPO @ ${COMMIT:0:7} outside selfbuild/"
-git -C "$REPO_ROOT" cat-file -e "$COMMIT^{commit}" 2>/dev/null || git -C "$REPO_ROOT" fetch -q upstream
-outside=(-- . ':(exclude)selfbuild')
-if ! git -C "$REPO_ROOT" diff --quiet "$COMMIT" "${outside[@]}" \
-    || [ -n "$(git -C "$REPO_ROOT" ls-files --others --exclude-standard "${outside[@]}")" ]; then
-    echo "error: the app source differs from the audited commit ${COMMIT:0:7}:" >&2
-    git -C "$REPO_ROOT" diff --stat "$COMMIT" "${outside[@]}" >&2
-    git -C "$REPO_ROOT" ls-files --others --exclude-standard "${outside[@]}" | sed 's/^/  untracked: /' >&2
-    echo "Audit the change (AUDIT.md), then set COMMIT in selfbuild/UPSTREAM." >&2
-    exit 1
-fi
+check_source
 
-flavor_cap="$(tr '[:lower:]' '[:upper:]' <<<"${FLAVOR:0:1}")${FLAVOR:1}"
 echo "==> gradle assemble${flavor_cap}Release (first run downloads a lot)"
 CMD="cd .. && ./gradlew --no-daemon -q clean assemble${flavor_cap}Release"
 in_container
@@ -114,7 +143,10 @@ fi
 
 version_name="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" "$ROOT/out/badging.txt")"
 version_code="$(sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" "$ROOT/out/badging.txt")"
-NAME="digipaws-${version_name}-${version_code}-${COMMIT:0:7}.apk"
+# Upstream commit, then this repo's commit: the second one names the patches.
+fork="$(git -C "$REPO_ROOT" rev-parse --short=7 HEAD)"
+[ -n "$(git -C "$REPO_ROOT" status --porcelain)" ] && fork="$fork-dirty"
+NAME="digipaws-${version_name}-${version_code}-${COMMIT:0:7}-${fork}.apk"
 mv "$ROOT/out/digipaws-signed.apk" "$ROOT/out/$NAME"
 sha256sum "$ROOT/out/$NAME" | cut -d' ' -f1 > "$ROOT/out/$NAME.sha256"
 

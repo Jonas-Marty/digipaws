@@ -1,0 +1,458 @@
+diff --git a/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt b/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt
+index acb6e44..bacbd23 100644
+--- a/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt
++++ b/app/src/main/java/nethical/digipaws/blockers/AppBlocker.kt
+@@ -3,7 +3,7 @@ package nethical.digipaws.blockers
+ import android.os.SystemClock
+ import android.util.Log
+ import nethical.digipaws.ui.activity.TimedActionActivity
+-import nethical.digipaws.utils.TimeTools
++import nethical.digipaws.utils.DaySchedule
+ import java.util.Calendar
+ 
+ class AppBlocker:BaseBlocker() {
+@@ -11,8 +11,8 @@ class AppBlocker:BaseBlocker() {
+     // package-name -> end-time-in-millis
+     private var cooldownAppsList:MutableMap<String,Long> = mutableMapOf()
+ 
+-    // package-name -> [(start-time, end-time), ...]
+-    private var cheatHours: MutableMap<String, List<Pair<Int, Int>>> = mutableMapOf()
++    // package-name -> [(start-time, end-time, days), ...]
++    private var cheatHours: MutableMap<String, List<DaySchedule.Range>> = mutableMapOf()
+ 
+     var blockedAppsList = hashSetOf("")
+ 
+@@ -67,27 +67,15 @@ class AppBlocker:BaseBlocker() {
+      * @return Returns null if the app is not under cheat hours, or the timestamp (uptimeMillis) when it ends.
+      */
+     private fun getEndTimeInMillis(packageName: String): Long? {
+-        if (cheatHours[packageName] == null) return null
++        val ranges = cheatHours[packageName] ?: return null
+ 
+-        val currentTime = Calendar.getInstance()
+-        val currentHour = currentTime.get(Calendar.HOUR_OF_DAY)
+-        val currentMinute = currentTime.get(Calendar.MINUTE)
+-
+-        val currentMinutes = TimeTools.convertToMinutesFromMidnight(currentHour, currentMinute)
++        val now = Calendar.getInstance()
+         val uptimeNow = SystemClock.uptimeMillis()
+ 
+-        cheatHours[packageName]?.forEach { (startMinutes, endMinutes) ->
+-            if ((startMinutes <= endMinutes && currentMinutes in startMinutes until endMinutes) ||
+-                (startMinutes > endMinutes && (currentMinutes >= startMinutes || currentMinutes < endMinutes))
+-            ) {
+-
+-                // Convert endMinutes to uptimeMillis
+-                val diffMinutes = endMinutes - currentMinutes
+-                Log.d("AppBlocker", "$packageName cheat-hour ends after $diffMinutes minutes")
+-                val endTimeMillis = uptimeNow + (diffMinutes * 60 * 1000)
+-
+-                return endTimeMillis
+-            }
++        ranges.forEach { range ->
++            val minutesLeft = DaySchedule.minutesLeft(range, now) ?: return@forEach
++            Log.d("AppBlocker", "$packageName cheat-hour ends after $minutesLeft minutes")
++            return uptimeNow + (minutesLeft * 60 * 1000L)
+         }
+         return null
+     }
+@@ -96,29 +84,12 @@ class AppBlocker:BaseBlocker() {
+     fun refreshCheatHoursData(cheatList: List<TimedActionActivity.AutoTimedActionItem>) {
+         cheatHours.clear()
+         cheatList.forEach { item ->
+-            val startTime = item.startTimeInMins
+-            val endTime = item.endTimeInMins
+-            val packageNames: ArrayList<String> = item.packages
+-
+-            packageNames.forEach { packageName ->
+-                Log.d(
+-                    "AppBlocker",
+-                    "added cheat-hour data for $packageName : $startTime to $endTime"
+-                )
+-
+-                if (cheatHours.containsKey(packageName)) {
+-                    val cheatHourTimeData: List<Pair<Int, Int>>? = cheatHours[packageName]
+-                    val cheatHourNewTimeData: MutableList<Pair<Int, Int>> =
+-                        cheatHourTimeData!!.toMutableList()
+-
+-                    cheatHourNewTimeData.add(Pair(startTime, endTime))
+-                    cheatHours[packageName] = cheatHourNewTimeData
+-                } else {
+-                    cheatHours[packageName] = listOf(Pair(startTime, endTime))
+-                }
++            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
++            item.packages.forEach { packageName ->
++                Log.d("AppBlocker", "added timed-action data for $packageName : $range")
++                cheatHours[packageName] = (cheatHours[packageName] ?: emptyList()) + range
+             }
+         }
+-
+     }
+ 
+     /**
+diff --git a/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt b/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt
+index 3c4ea4d..c9b2dfa 100644
+--- a/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt
++++ b/app/src/main/java/nethical/digipaws/blockers/FocusModeBlocker.kt
+@@ -4,13 +4,13 @@ import android.os.SystemClock
+ import android.util.Log
+ import nethical.digipaws.Constants
+ import nethical.digipaws.ui.activity.TimedActionActivity
+-import nethical.digipaws.utils.TimeTools
++import nethical.digipaws.utils.DaySchedule
+ import java.util.Calendar
+ 
+ class FocusModeBlocker : BaseBlocker() {
+ 
+-    // package-name -> [(start-time, end-time), ...]
+-    private var autoFocusHours: MutableMap<String, List<Pair<Int, Int>>> = mutableMapOf()
++    // package-name -> [(start-time, end-time, days), ...]
++    private var autoFocusHours: MutableMap<String, List<DaySchedule.Range>> = mutableMapOf()
+ 
+     var focusModeData = FocusModeData()
+ 
+@@ -66,26 +66,14 @@ class FocusModeBlocker : BaseBlocker() {
+      * @return Returns null if the app is not under auto focus hours, or the timestamp (uptimeMillis) when it ends .
+      */
+     private fun getEndTimeInMillis(packageName: String): Long? {
+-        if (autoFocusHours[packageName] == null) return null
++        val ranges = autoFocusHours[packageName] ?: return null
+ 
+-        val currentTime = Calendar.getInstance()
+-        val currentHour = currentTime.get(Calendar.HOUR_OF_DAY)
+-        val currentMinute = currentTime.get(Calendar.MINUTE)
+-
+-        val currentMinutes = TimeTools.convertToMinutesFromMidnight(currentHour, currentMinute)
++        val now = Calendar.getInstance()
+         val uptimeNow = SystemClock.uptimeMillis()
+ 
+-        autoFocusHours[packageName]?.forEach { (startMinutes, endMinutes) ->
+-            if ((startMinutes <= endMinutes && currentMinutes in startMinutes until endMinutes) ||
+-                (startMinutes > endMinutes && (currentMinutes >= startMinutes || currentMinutes < endMinutes))
+-            ) {
+-
+-                // Convert endMinutes to uptimeMillis
+-                val diffMinutes = endMinutes - currentMinutes
+-                val endTimeMillis = uptimeNow + (diffMinutes * 60 * 1000)
+-
+-                return endTimeMillis
+-            }
++        ranges.forEach { range ->
++            val minutesLeft = DaySchedule.minutesLeft(range, now) ?: return@forEach
++            return uptimeNow + (minutesLeft * 60 * 1000L)
+         }
+         return null
+     }
+@@ -94,26 +82,12 @@ class FocusModeBlocker : BaseBlocker() {
+     fun refreshCheatHoursData(focusData: List<TimedActionActivity.AutoTimedActionItem>) {
+         autoFocusHours.clear()
+         focusData.forEach { item ->
+-            val startTime = item.startTimeInMins
+-            val endTime = item.endTimeInMins
+-            val packageNames: ArrayList<String> = item.packages
+-
+-            packageNames.forEach { packageName ->
+-
+-                if (autoFocusHours.containsKey(packageName)) {
+-                    val cheatHourTimeData: List<Pair<Int, Int>>? = autoFocusHours[packageName]
+-                    val cheatHourNewTimeData: MutableList<Pair<Int, Int>> =
+-                        cheatHourTimeData!!.toMutableList()
+-
+-                    cheatHourNewTimeData.add(Pair(startTime, endTime))
+-                    autoFocusHours[packageName] = cheatHourNewTimeData
+-                } else {
+-                    autoFocusHours[packageName] = listOf(Pair(startTime, endTime))
+-                }
++            val range = DaySchedule.Range(item.startTimeInMins, item.endTimeInMins, item.days)
++            item.packages.forEach { packageName ->
++                Log.d("FocusModeBlocker", "added timed-action data for $packageName : $range")
++                autoFocusHours[packageName] = (autoFocusHours[packageName] ?: emptyList()) + range
+             }
+         }
+-        Log.d("FocusModeBlocker", "Auto Focus Data updated $autoFocusHours")
+-
+     }
+ 
+     /**
+diff --git a/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt b/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt
+index c6f5561..af0a1bc 100644
+--- a/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt
++++ b/app/src/main/java/nethical/digipaws/ui/activity/TimedActionActivity.kt
+@@ -15,11 +15,14 @@ import androidx.core.view.ViewCompat
+ import androidx.core.view.WindowInsetsCompat
+ import androidx.recyclerview.widget.LinearLayoutManager
+ import androidx.recyclerview.widget.RecyclerView
++import com.google.android.material.chip.Chip
++import com.google.android.material.chip.ChipDrawable
+ import com.google.android.material.dialog.MaterialAlertDialogBuilder
+ import nethical.digipaws.R
+ import nethical.digipaws.databinding.ActivityAddTimedActionActivityBinding
+ import nethical.digipaws.databinding.CheatHourItemBinding
+ import nethical.digipaws.databinding.DialogAddTimedActionBinding
++import nethical.digipaws.utils.DaySchedule
+ import nethical.digipaws.utils.SavedPreferencesLoader
+ import nethical.digipaws.utils.TimeTools
+ import nl.joery.timerangepicker.TimeRangePicker
+@@ -95,6 +98,21 @@ class TimedActionActivity : AppCompatActivity() {
+         dialogAddToTimedActionBinding.picker.endTime = TimeRangePicker.Time(22, 0)
+ 
+         dialogAddToTimedActionBinding.picker.hourFormat = TimeRangePicker.HourFormat.FORMAT_24
++
++        // One chip per weekday, Monday first, all on: a new entry applies every day by default.
++        val dayChips = DaySchedule.WEEK.associateWith { day ->
++            Chip(this).apply {
++                setChipDrawable(
++                    ChipDrawable.createFromAttributes(
++                        context, null, 0, com.google.android.material.R.style.Widget_Material3_Chip_Filter
++                    )
++                )
++                text = DaySchedule.shortName(day)
++                isCheckable = true
++                isChecked = true
++                dialogAddToTimedActionBinding.dayChips.addView(this)
++            }
++        }
+         var endTimeInMins: Int? = dialogAddToTimedActionBinding.picker.endTimeMinutes
+         var startTimeInMins: Int? = dialogAddToTimedActionBinding.picker.startTimeMinutes
+ 
+@@ -172,13 +190,19 @@ class TimedActionActivity : AppCompatActivity() {
+                         getString(R.string.please_select_a_few_apps), Toast.LENGTH_SHORT
+                     )
+                         .show()
++                } else if (dayChips.values.none { it.isChecked }) {
++                    Toast.makeText(
++                        this,
++                        getString(R.string.please_select_a_day), Toast.LENGTH_SHORT
++                    ).show()
+                 } else {
+                     timedActionList.add(
+                         AutoTimedActionItem(
+                             dialogAddToTimedActionBinding.cheatHourTitle.text.toString(),
+                             startTimeInMins!!,
+                             endTimeInMins!!,
+-                            selectedUnblockedApps!!
++                            selectedUnblockedApps!!,
++                            days = dayChips.filterValues { it.isChecked }.keys.toList()
+                         )
+                     )
+                     binding.recyclerView2.adapter?.notifyItemInserted(timedActionList.size)
+@@ -220,7 +244,7 @@ class TimedActionActivity : AppCompatActivity() {
+                         convertedStartTime.second,
+                         convertedEndTIme.first,
+                         convertedEndTIme.second
+-                    )
++                    ) + " · " + DaySchedule.label(item.days, getString(R.string.every_day))
+                 item.packages.forEach { packageName ->
+                     binding.selectedApps.text =
+                         binding.selectedApps.text.toString() + " " + packageName
+@@ -260,7 +284,9 @@ class TimedActionActivity : AppCompatActivity() {
+         val startTimeInMins: Int,
+         val endTimeInMins: Int,
+         val packages: ArrayList<String>,
+-        val isProceedHidden: Boolean = false
++        val isProceedHidden: Boolean = false,
++        // Calendar.DAY_OF_WEEK values; null (entries saved before weekdays) = every day.
++        val days: List<Int>? = null
+     )
+ 
+ 
+diff --git a/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt b/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt
+new file mode 100644
+index 0000000..bb162ee
+--- /dev/null
++++ b/app/src/main/java/nethical/digipaws/utils/DaySchedule.kt
+@@ -0,0 +1,65 @@
++package nethical.digipaws.utils
++
++import java.text.DateFormatSymbols
++import java.util.Calendar
++
++/**
++ * Weekday support for timed actions (Auto-Focus hours and App Blocker cheat hours).
++ *
++ * Days are [Calendar.DAY_OF_WEEK] values. A null or empty list means every day, which is
++ * what entries saved before weekdays existed deserialize to.
++ */
++object DaySchedule {
++
++    /** Display order, Monday first. */
++    val WEEK = listOf(
++        Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY,
++        Calendar.FRIDAY, Calendar.SATURDAY, Calendar.SUNDAY
++    )
++
++    data class Range(val startMinutes: Int, val endMinutes: Int, val days: List<Int>?)
++
++    fun appliesOn(days: List<Int>?, dayOfWeek: Int): Boolean =
++        days.isNullOrEmpty() || dayOfWeek in days
++
++    private fun previousDay(dayOfWeek: Int): Int =
++        if (dayOfWeek == Calendar.SUNDAY) Calendar.SATURDAY else dayOfWeek - 1
++
++    /**
++     * Minutes until [range] ends if [now] falls inside it, else null.
++     *
++     * A range that crosses midnight belongs to the day it starts on: Friday 22:00-02:00 also
++     * covers Saturday 00:00-02:00, but not Friday 00:00-02:00.
++     */
++    fun minutesLeft(range: Range, now: Calendar): Int? {
++        val current = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
++        val day = now.get(Calendar.DAY_OF_WEEK)
++        val (start, end, days) = range
++
++        if (start < end) {
++            return if (current in start until end && appliesOn(days, day)) end - current else null
++        }
++        if (start > end) {
++            if (current >= start && appliesOn(days, day)) return end + 24 * 60 - current
++            if (current < end && appliesOn(days, previousDay(day))) return end - current
++        }
++        return null
++    }
++
++    /** "Every day", "Mon–Fri", or "Mon, Tue, Fri" in the device language. */
++    fun label(days: List<Int>?, everyDay: String): String {
++        if (days.isNullOrEmpty() || days.toSet().containsAll(WEEK)) return everyDay
++        val selected = WEEK.filter { it in days }
++        val names = DateFormatSymbols.getInstance().shortWeekdays
++        val firstIndex = WEEK.indexOf(selected.first())
++        val contiguous = selected.size >= 3 &&
++            selected == WEEK.subList(firstIndex, firstIndex + selected.size)
++        return if (contiguous) {
++            "${names[selected.first()]}–${names[selected.last()]}"
++        } else {
++            selected.joinToString(", ") { names[it] }
++        }
++    }
++
++    fun shortName(dayOfWeek: Int): String = DateFormatSymbols.getInstance().shortWeekdays[dayOfWeek]
++}
+diff --git a/app/src/main/res/layout/dialog_add_timed_action.xml b/app/src/main/res/layout/dialog_add_timed_action.xml
+index 3890c5b..090873a 100644
+--- a/app/src/main/res/layout/dialog_add_timed_action.xml
++++ b/app/src/main/res/layout/dialog_add_timed_action.xml
+@@ -93,6 +93,13 @@
+             android:singleLine="true" />
+     </com.google.android.material.textfield.TextInputLayout>
+ 
++    <com.google.android.material.chip.ChipGroup
++        android:id="@+id/day_chips"
++        android:layout_width="match_parent"
++        android:layout_height="wrap_content"
++        android:layout_marginTop="8dp"
++        app:chipSpacingHorizontal="4dp" />
++
+     <Button
+         android:id="@+id/btn_select_end_time"
+         android:layout_width="wrap_content"
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 5d72dc4..5ae47ad 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -135,6 +135,8 @@
+     <string name="please_select_a_start_time">Please Select a start time</string>
+     <string name="please_select_an_end_time">Please Select an end time</string>
+     <string name="please_select_a_few_apps">Please select a few apps</string>
++    <string name="every_day">Every day</string>
++    <string name="please_select_a_day">Please select at least one day</string>
+     <string name="cheat_timings">%1$d:%2$d to %3$d:%4$d</string>
+     <string name="configure_warning_screen">Warning Screen</string>
+     <string name="proceed_in">Please wait %1$d seconds before pressing proceed</string>
+diff --git a/app/src/test/java/nethical/digipaws/DayScheduleTest.kt b/app/src/test/java/nethical/digipaws/DayScheduleTest.kt
+new file mode 100644
+index 0000000..11fc9e1
+--- /dev/null
++++ b/app/src/test/java/nethical/digipaws/DayScheduleTest.kt
+@@ -0,0 +1,92 @@
++package nethical.digipaws
++
++import nethical.digipaws.utils.DaySchedule
++import nethical.digipaws.utils.DaySchedule.Range
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++import java.util.Calendar
++import java.util.Locale
++
++class DayScheduleTest {
++
++    private val weekdays = listOf(
++        Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY
++    )
++
++    // 2026-11-02 is a Monday.
++    private fun at(dayOfMonth: Int, hour: Int, minute: Int): Calendar =
++        Calendar.getInstance().apply {
++            clear()
++            set(2026, Calendar.NOVEMBER, dayOfMonth, hour, minute)
++        }
++
++    private val morning = Range(7 * 60 + 30, 11 * 60 + 30, weekdays)
++    private val afternoon = Range(12 * 60 + 30, 16 * 60 + 30, weekdays)
++
++    @Test
++    fun splitWorkdayBlocksInsideBothWindows() {
++        assertEquals(60, DaySchedule.minutesLeft(morning, at(2, 10, 30)))      // Mon 10:30
++        assertEquals(30, DaySchedule.minutesLeft(afternoon, at(6, 16, 0)))     // Fri 16:00
++    }
++
++    @Test
++    fun lunchBreakAndEdgesAreFree() {
++        assertNull(DaySchedule.minutesLeft(morning, at(2, 11, 30)))            // end is exclusive
++        assertNull(DaySchedule.minutesLeft(afternoon, at(2, 12, 0)))           // lunch
++        assertEquals(240, DaySchedule.minutesLeft(morning, at(2, 7, 30)))      // start is inclusive
++    }
++
++    @Test
++    fun weekendIsFree() {
++        assertNull(DaySchedule.minutesLeft(morning, at(7, 10, 0)))             // Sat
++        assertNull(DaySchedule.minutesLeft(afternoon, at(8, 13, 0)))           // Sun
++    }
++
++    @Test
++    fun differentHoursOnDifferentDays() {
++        val fridayShort = Range(8 * 60, 12 * 60, listOf(Calendar.FRIDAY))
++        assertEquals(60, DaySchedule.minutesLeft(fridayShort, at(6, 11, 0)))   // Fri
++        assertNull(DaySchedule.minutesLeft(fridayShort, at(5, 11, 0)))         // Thu
++    }
++
++    @Test
++    fun entriesWithoutDaysApplyEveryDay() {
++        val legacy = Range(9 * 60, 10 * 60, null)
++        assertEquals(30, DaySchedule.minutesLeft(legacy, at(8, 9, 30)))        // Sun
++        assertEquals(30, DaySchedule.minutesLeft(Range(9 * 60, 10 * 60, emptyList()), at(8, 9, 30)))
++    }
++
++    @Test
++    fun overnightRangeBelongsToTheDayItStarts() {
++        val fridayNight = Range(22 * 60, 2 * 60, listOf(Calendar.FRIDAY))
++        assertEquals(240, DaySchedule.minutesLeft(fridayNight, at(6, 22, 0)))  // Fri 22:00, ends Sat 02:00
++        assertEquals(60, DaySchedule.minutesLeft(fridayNight, at(7, 1, 0)))    // Sat 01:00
++        assertNull(DaySchedule.minutesLeft(fridayNight, at(6, 1, 0)))          // Fri 01:00 = Thursday's night
++        assertNull(DaySchedule.minutesLeft(fridayNight, at(7, 22, 30)))        // Sat 22:30
++    }
++
++    @Test
++    fun sundayNightRunsIntoMonday() {
++        val sundayNight = Range(23 * 60, 1 * 60, listOf(Calendar.SUNDAY))
++        assertEquals(30, DaySchedule.minutesLeft(sundayNight, at(9, 0, 30)))   // Mon 00:30
++    }
++
++    @Test
++    fun emptyRangeNeverMatches() {
++        assertNull(DaySchedule.minutesLeft(Range(600, 600, null), at(2, 10, 0)))
++    }
++
++    @Test
++    fun labels() {
++        Locale.setDefault(Locale.ENGLISH)
++        assertEquals("Every day", DaySchedule.label(null, "Every day"))
++        assertEquals("Every day", DaySchedule.label(DaySchedule.WEEK, "Every day"))
++        assertEquals("Mon–Fri", DaySchedule.label(weekdays, "Every day"))
++        assertEquals(
++            "Mon, Tue, Fri",
++            DaySchedule.label(listOf(Calendar.FRIDAY, Calendar.MONDAY, Calendar.TUESDAY), "Every day")
++        )
++        assertEquals("Sat, Sun", DaySchedule.label(listOf(Calendar.SATURDAY, Calendar.SUNDAY), "Every day"))
++    }
++}

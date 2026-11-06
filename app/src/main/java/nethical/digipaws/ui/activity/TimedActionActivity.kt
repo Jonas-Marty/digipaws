@@ -15,11 +15,14 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.chip.Chip
+import com.google.android.material.chip.ChipDrawable
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import nethical.digipaws.R
 import nethical.digipaws.databinding.ActivityAddTimedActionActivityBinding
 import nethical.digipaws.databinding.CheatHourItemBinding
 import nethical.digipaws.databinding.DialogAddTimedActionBinding
+import nethical.digipaws.utils.DaySchedule
 import nethical.digipaws.utils.SavedPreferencesLoader
 import nethical.digipaws.utils.TimeTools
 import nl.joery.timerangepicker.TimeRangePicker
@@ -95,6 +98,21 @@ class TimedActionActivity : AppCompatActivity() {
         dialogAddToTimedActionBinding.picker.endTime = TimeRangePicker.Time(22, 0)
 
         dialogAddToTimedActionBinding.picker.hourFormat = TimeRangePicker.HourFormat.FORMAT_24
+
+        // One chip per weekday, Monday first, all on: a new entry applies every day by default.
+        val dayChips = DaySchedule.WEEK.associateWith { day ->
+            Chip(this).apply {
+                setChipDrawable(
+                    ChipDrawable.createFromAttributes(
+                        context, null, 0, com.google.android.material.R.style.Widget_Material3_Chip_Filter
+                    )
+                )
+                text = DaySchedule.shortName(day)
+                isCheckable = true
+                isChecked = true
+                dialogAddToTimedActionBinding.dayChips.addView(this)
+            }
+        }
         var endTimeInMins: Int? = dialogAddToTimedActionBinding.picker.endTimeMinutes
         var startTimeInMins: Int? = dialogAddToTimedActionBinding.picker.startTimeMinutes
 
@@ -172,13 +190,19 @@ class TimedActionActivity : AppCompatActivity() {
                         getString(R.string.please_select_a_few_apps), Toast.LENGTH_SHORT
                     )
                         .show()
+                } else if (dayChips.values.none { it.isChecked }) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.please_select_a_day), Toast.LENGTH_SHORT
+                    ).show()
                 } else {
                     timedActionList.add(
                         AutoTimedActionItem(
                             dialogAddToTimedActionBinding.cheatHourTitle.text.toString(),
                             startTimeInMins!!,
                             endTimeInMins!!,
-                            selectedUnblockedApps!!
+                            selectedUnblockedApps!!,
+                            days = dayChips.filterValues { it.isChecked }.keys.toList()
                         )
                     )
                     binding.recyclerView2.adapter?.notifyItemInserted(timedActionList.size)
@@ -220,7 +244,7 @@ class TimedActionActivity : AppCompatActivity() {
                         convertedStartTime.second,
                         convertedEndTIme.first,
                         convertedEndTIme.second
-                    )
+                    ) + " · " + DaySchedule.label(item.days, getString(R.string.every_day))
                 item.packages.forEach { packageName ->
                     binding.selectedApps.text =
                         binding.selectedApps.text.toString() + " " + packageName
@@ -260,7 +284,9 @@ class TimedActionActivity : AppCompatActivity() {
         val startTimeInMins: Int,
         val endTimeInMins: Int,
         val packages: ArrayList<String>,
-        val isProceedHidden: Boolean = false
+        val isProceedHidden: Boolean = false,
+        // Calendar.DAY_OF_WEEK values; null (entries saved before weekdays) = every day.
+        val days: List<Int>? = null
     )
 
 

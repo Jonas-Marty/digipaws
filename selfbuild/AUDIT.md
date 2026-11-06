@@ -65,6 +65,14 @@ in full.
 **Maintenance:** last commit June 2025, no release tags. That's fine for a
 pinned build, but don't expect fixes for new Android versions.
 
+## Our patches (2026-11-06)
+
+`patches/0001-weekday-schedules.patch` was written by us, not upstream. It adds
+no permissions, no dependencies and no I/O: a `days` field on the stored entries
+(JSON in the existing private SharedPreferences), a pure `DaySchedule` helper
+using `Calendar` and `DateFormatSymbols`, Material chips in an existing dialog,
+and 9 JVM unit tests. The INTERNET check covers the patched build too.
+
 ## Alternatives considered (2026-11-06)
 
 - **Mindful** (`akaMrNagar/Mindful`, Flutter): richer schedules (bedtime,
