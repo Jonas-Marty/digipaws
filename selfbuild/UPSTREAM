@@ -1,0 +1,5 @@
+# The exact source that gets built. Change COMMIT only after re-running the
+# audit checklist in AUDIT.md against the new diff.
+REPO=https://github.com/WAYYYAW/digipaws
+COMMIT=15b75e9b1d7fc3e43092f0e5735e7f5453d82eff
+FLAVOR=lite
